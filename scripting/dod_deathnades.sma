@@ -108,17 +108,17 @@
 #include <hamsandwich>
 
 #define PLUGIN "DOD Deathnades"
-#define VERSION "2.3H"
+#define VERSION "2.3.1"
 #define AUTHOR "Vet(3TT3V)"
 #define SVARIABLE "DOD_Deathnades"
-#define SVALUE "v2.3H by Vet(3TT3V)"
+#define SVALUE "v2.3.1 by Vet(3TT3V)"
 
 #define MAX_NADES_TYPE 2	// DON'T FUCK WITH THIS SETTING
 #define BRITISH 0
 #define ALLY_PTR 0
 #define AXIS_PTR 1
-#define HAND_OFFSET 289
-#define STICK_OFFSET 291
+#define HAND_OFFSET 290
+#define STICK_OFFSET 292
 #define MAX_PLAYERS 32
 
 // Correct errors in DeathMsg weapons

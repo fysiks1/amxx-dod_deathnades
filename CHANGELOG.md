@@ -1,5 +1,8 @@
 # Revision History:
 
+## 2.3.1 (2024-12-31)
+Update pdata offsets for Ally and Axis grenades
+
 ## 2.3H (2009-10-14)
 Fix/Work-around for bug in 'dodfun' module 1.80+ that causes nades to glow the wrong colors (incorrect thrown nade values returned by grenade_throw function).
 
