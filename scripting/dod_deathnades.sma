@@ -55,6 +55,9 @@
 *		dod_deathnades_say <0|1> - Announce to killer, in chat, that victim dropped nades (Default 1)
 *		dod_deathnades_wpn <0|1> - Don't drop a grenade if killed by a grenade or rocket (Default 1)
 *		dod_deathnades_use <0|1> - Force players to press the 'use' key to pick up nades (Default 0)
+*		dod_deathnades_glow <0|1> - Give nades a glowing effect per type & team settings (Default 0)
+*		dod_deathnades_glow_type <-1|0|1> - Glow effect for dropped (-1), both (0) or live (1) nades (Default 1)
+*		dod_deathnades_glow_team <0|1> - Glow with yellow or use the team colors (Default 1 - team)
 *
 *	CREDIT and THANKS to:
 *		Firestorm - www.dodplugins.net
@@ -70,27 +73,45 @@
 *			- Providing a work-around for 'dod_get_user_ammo' on LINUX machines
 *
 **********************************************************************************************/
-// 2.0 changes
-// Changed team defines
-// Added "e" to Ammox event and have function check if plugin enabled
-// Split up some conditions for more logical flow and efficiency
-// Streamlined nade_cleanup routine
-// Added routine to cleanup nades if ctrl changed to 0 during a round
-// Changed nade set_origin method
-// Return Think & Touch with SUPERCEDE
-// Changed from client_death to DeathMsg event
-// Fixed switching to picked-up nade if using a knife or spade
-// Correct weapons error in DeathMsg
+
+// 2.2 Changes
+//	Fixed nades being removed when touched but not picked up
+//	Option to Glow live nades as well as dropped nades (or both)
+//	Option to Glow with team colors or same color (yellow) for both
+
+// 2.1 Changes
+//	Option to Glow dropped nades
+//	Nades thrown with random velocity
+//	Changed the classnames to start with 'weapon_' (for compatibilty with killingspree etc}
+//	Discontinued non-HamSandwich versions
+
+// 2.0 Changes
+//	Changed team defines
+//	Added "e" to Ammox event and have function check if plugin enabled
+//	Split up some conditions for more logical flow and efficiency
+//	Streamlined nade_cleanup routine
+//	Added routine to cleanup nades if ctrl changed to 0 during a round
+//	Changed nade set_origin method
+//	Return Think & Touch with SUPERCEDE
+//	Changed from client_death to DeathMsg event
+//	Fixed switching to picked-up nade if using a knife or spade
+//	Correct weapons error in DeathMsg
+
+// 2.0H Changes
+//	Use HamSandwich for Touch and Think
 
 #include <amxmodx>
 #include <amxmisc>
 #include <fakemeta>
 #include <dodx>
+#include <dodfun>
+#include <hamsandwich>
 
-#define PLUGIN "DOD_Deathnades"
-#define VERSION "2.0"
+#define PLUGIN "DOD Deathnades"
+#define VERSION "2.3H"
 #define AUTHOR "Vet(3TT3V)"
-#define SVALUE "v2.0 by Vet(3TT3V)"
+#define SVARIABLE "DOD_Deathnades"
+#define SVALUE "v2.3H by Vet(3TT3V)"
 
 #define MAX_NADES_TYPE 2	// DON'T FUCK WITH THIS SETTING
 #define BRITISH 0
@@ -110,9 +131,10 @@
 #define fm_remove_entity(%1) engfunc(EngFunc_RemoveEntity, %1)
 #define fm_create_entity(%1) engfunc(EngFunc_CreateNamedEntity, engfunc(EngFunc_AllocString, %1))
 #define fm_find_ent_by_class(%1,%2) engfunc(EngFunc_FindEntityByString, %1, "classname", %2)
+#define fm_entity_set_size(%1,%2,%3) engfunc(EngFunc_SetSize, %1, %2, %3)
 
 // Entity globals
-new g_ent_myclass[3][] = {"vetnadeally", "vetnadeally", "vetnadeaxis"}
+new g_ent_myclass[3][] = {"weapon_vnal", "weapon_vnal", "weapon_vnax"}
 new g_ent_mdl[3][] = {"models/w_mills.mdl", "models/w_grenade.mdl", "models/w_stick.mdl"}
 new g_give_nade[3][] = {"weapon_handgrenade", "weapon_handgrenade", "weapon_stickgrenade"}
 
@@ -120,6 +142,9 @@ new g_give_nade[3][] = {"weapon_handgrenade", "weapon_handgrenade", "weapon_stic
 new g_control
 new g_nade_life
 new g_wpn_restrict
+new g_nade_glow
+new g_nade_glow_type
+new g_nade_glow_team
 new g_nade_say
 new g_use_key
 
@@ -145,20 +170,23 @@ public plugin_precache()
 public plugin_init()
 {
 	register_plugin(PLUGIN, VERSION, AUTHOR)
-	register_event("DeathMsg", "event_death", "a")
-	register_forward(FM_Touch, "nade_touch")
-	register_forward(FM_Think, "nade_think", 1)
 	register_concmd("dod_deathnades", "deathnades_ctrl", ADMIN_CFG, "<#|?>")
 	register_event("AmmoX", "ammo_update", "be")
 	register_event("RoundState", "cleanup_nades", "a", "1=3", "1=4")
+	register_event("DeathMsg", "event_death", "a")
+	RegisterHam(Ham_Think, "info_target", "HAM_nade_think")
+	RegisterHam(Ham_Touch, "info_target", "HAM_nade_touch")
 
 	g_control = register_cvar("dod_deathnades_ctrl", "2")
 	g_nade_life = register_cvar("dod_deathnades_life", "20")
 	g_wpn_restrict = register_cvar("dod_deathnades_wpn", "1")
+	g_nade_glow = register_cvar("dod_deathnades_glow", "0")
+	g_nade_glow_type = register_cvar("dod_deathnades_glow_type", "1")
+	g_nade_glow_team = register_cvar("dod_deathnades_glow_team", "1")
 	g_nade_say = register_cvar("dod_deathnades_say", "1")
 	g_use_key = register_cvar("dod_deathnades_use", "0")
 
-	register_cvar(PLUGIN, SVALUE, FCVAR_SERVER|FCVAR_SPONLY)
+	register_cvar(SVARIABLE, SVALUE, FCVAR_SERVER|FCVAR_SPONLY)
 	return PLUGIN_CONTINUE
 }
 
@@ -241,50 +269,85 @@ public event_death()
 
 public spawn_nade(id, type)
 {
-	static Float:n_info[3], ent
-	n_info = Float:{0.0, 0.0, 0.0}
+	static Float:n_info[3], Float:n_info1[3], ent, tmpint
 	ent = fm_create_entity("info_target")
 
-	set_pev(ent, pev_classname, g_ent_myclass[type])
-	n_info[1] = get_gametime() + float(get_pcvar_num(g_nade_life))
-	set_pev(ent, pev_nextthink, n_info[1])
+	fm_set_model(ent, g_ent_mdl[type])
+	//n_info = Float:{-16.0, -16.0, 0.0}
+	//n_info1 = Float:{16.0, 16.0, 8.0}
+	//fm_entity_set_size(ent, n_info, n_info1)
+
 	set_pev(ent, pev_solid, SOLID_TRIGGER)
 	set_pev(ent, pev_movetype, MOVETYPE_TOSS)
+	set_pev(ent, pev_classname, g_ent_myclass[type])
+
+	n_info[1] = get_gametime() + float(get_pcvar_num(g_nade_life))
+	set_pev(ent, pev_nextthink, n_info[1])
+
+	n_info = Float:{0.0, 0.0, 0.0}
 	n_info[1] = float(random(360))
 	set_pev(ent, pev_angles, n_info)
 	pev(id, pev_origin, n_info)
-	n_info[0] += (random(31) - 15)
-	n_info[1] += (random(31) - 15)
 	fm_set_origin(ent, n_info)
-	fm_set_model(ent, g_ent_mdl[type])
+
+	tmpint = random(60) + 30
+	pev(id, pev_velocity, n_info1)
+	velocity_by_aim(id, tmpint, n_info)
+	n_info1[0] += (n_info[0] + float(random(60) + 30))
+	n_info1[1] += (n_info[1] + float(random(60) + 30))
+	n_info1[2] = float(random(30))
+	set_pev(ent, pev_velocity, n_info1)
+
+	if (get_pcvar_num(g_nade_glow) && get_pcvar_num(g_nade_glow_type) < 1) {
+		if (get_pcvar_num(g_nade_glow_team)) {
+			if (type == 2)
+				fm_set_rendering(ent, kRenderFxGlowShell, 80, 20, 20, kRenderNormal, 1)
+			else
+				fm_set_rendering(ent, kRenderFxGlowShell, 20, 80, 20, kRenderNormal, 1)
+		} else
+			fm_set_rendering(ent, kRenderFxGlowShell, 80, 80, 20, kRenderNormal, 1)
+	}
 }
 
-public nade_touch(ent, player)
+public HAM_nade_touch(ent, player)
 {
-	static touch_class[32], weapon
+	static touch_class[32], weapon, gave_nade
 
 	if (!pev_valid(ent))
-		return FMRES_IGNORED
+		return HAM_IGNORED
 	pev(ent, pev_classname, touch_class, 31)
-	if (!equal(touch_class, g_ent_myclass[BRITISH], 8))
-		return FMRES_IGNORED
+	if (!equal(touch_class, g_ent_myclass[BRITISH], 10))	// myclass[0-9] = weapon_vna
+		return HAM_IGNORED
 	if (!is_user_alive(player) || is_user_bot(player) || !get_pcvar_num(g_control))
-		return FMRES_IGNORED
+		return HAM_IGNORED
 	if (get_pcvar_num(g_use_key)) {
 		if (!(pev(player, pev_button) & IN_USE && pev(player, pev_oldbuttons) & ~IN_USE))
-			return FMRES_IGNORED
+			return HAM_IGNORED
 	}
 
+	gave_nade = 0
+	switch(touch_class[10]) {	// L = Allied Grenade, X = Axis Grenade
+		case 'l': {
+			if (get_pdata_int(player, HAND_OFFSET) < MAX_NADES_TYPE) {
+				fm_give_item(player, g_give_nade[ALLIES])
+				++gave_nade
+			}
+		}
+		case 'x': {
+			if (get_pdata_int(player, STICK_OFFSET) < MAX_NADES_TYPE) {
+				fm_give_item(player, g_give_nade[AXIS])
+				++gave_nade
+			}
+		}
+		default:
+			return HAM_IGNORED
+	}
+	if (!gave_nade)
+		return HAM_IGNORED
+
+	// This routine prevents the player from switching to the picked-up
+	//	grenade if they were previously holding a knife or spade
 	weapon = dod_get_user_weapon(player, _, _)
-	if (equal(touch_class, g_ent_myclass[ALLIES]) && get_pdata_int(player, HAND_OFFSET) < MAX_NADES_TYPE)
-		fm_give_item(player, g_give_nade[ALLIES])
-	else {
-		if (equal(touch_class, g_ent_myclass[AXIS]) && get_pdata_int(player, STICK_OFFSET) < MAX_NADES_TYPE)
-			fm_give_item(player, g_give_nade[AXIS])
-		else
-			return FMRES_IGNORED
-	}
-
 	switch(weapon) {
 		case 1, 37: {
 			client_cmd(player, "weapon_amerknife")
@@ -296,21 +359,39 @@ public nade_touch(ent, player)
 			client_cmd(player, "weapon_spade")
 		}
 	}
+
 	fm_remove_entity(ent)
-	return FMRES_SUPERCEDE
+	return HAM_SUPERCEDE
 }
 
-public nade_think(ent)
+public HAM_nade_think(ent)
 {
 	static think_class[32]
 	if (get_pcvar_num(g_control) && pev_valid(ent)) {
 		pev(ent, pev_classname, think_class, 31)
 		if (equal(think_class, g_ent_myclass[BRITISH], 8)) {
 			fm_remove_entity(ent)
-			return FMRES_SUPERCEDE
+			return HAM_SUPERCEDE
 		}
 	}
-	return FMRES_IGNORED
+	return HAM_IGNORED
+}
+
+public grenade_throw(id, entid, type)
+{
+	static modelid[32]
+	if (get_pcvar_num(g_nade_glow) && get_pcvar_num(g_nade_glow_type) > -1) {
+		if (get_pcvar_num(g_nade_glow_team)) {
+			pev(entid, pev_classname, modelid, 31)
+			switch (modelid[7]) {
+				case '2':	// w_stick
+					fm_set_rendering(entid, kRenderFxGlowShell, 80, 20, 20, kRenderNormal, 1)
+				default:	// w_grenade, w_mills
+					fm_set_rendering(entid, kRenderFxGlowShell, 20, 80, 20, kRenderNormal, 1)
+			}
+		} else
+			fm_set_rendering(entid, kRenderFxGlowShell, 80, 80, 20, kRenderNormal, 1)
+	}
 }
 
 public cleanup_nades()
@@ -350,7 +431,6 @@ public deathnades_ctrl(id, lvl, cid)
 		console_print(id, "Deathnades control parameter out of range (0 - 4)")
 		return PLUGIN_HANDLED
 	}
-
 	if (tmpctrl == 0)
 		cleanup_nades()
 	set_cvar_string("dod_deathnades_ctrl", tmpstr)
@@ -381,3 +461,16 @@ stock fm_give_item(index, const item[]) {
 	engfunc(EngFunc_RemoveEntity, ent)
 	return -1
 }
+
+stock fm_set_rendering(ent, fx=kRenderFxNone, r=255, g=255, b=255, rend=kRenderNormal, amt=16)
+{
+	new Float:rendColor[3]
+	rendColor[0] = float(r)
+	rendColor[1] = float(g)
+	rendColor[2] = float(b)
+
+	set_pev(ent, pev_renderfx, fx)
+	set_pev(ent, pev_rendercolor, rendColor)
+	set_pev(ent, pev_rendermode, rend)
+	set_pev(ent, pev_renderamt, float(amt))
+} 
